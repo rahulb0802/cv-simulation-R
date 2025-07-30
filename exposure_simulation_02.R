@@ -1,6 +1,7 @@
 library(dplyr)
 library(lme4)
 library(ggplot2)
+library(patchwork)
 
 generate_crossed_data <- function(
     num_people = 150,
@@ -111,7 +112,27 @@ risk_distribution_plot <- ggplot(sim_results_df, aes(x = outcomes)) +
   ) +
   theme_minimal()
 
-print(risk_distribution_plot)
+sim_results_df$context_id <- as.numeric(all_context_ids)
+
+
+# Let's find the top 3 contexts that produced the highest-risk outcomes
+dangerous_contexts <- sim_results_df %>%
+  arrange(desc(outcomes)) %>%
+  head(3)
+
+print("--- Analysis of High-Risk Contexts for Person 5 ---")
+print("The top 3 most 'dangerous' contexts for this person were:")
+print(dangerous_contexts)
+
+
+risk_distribution_plot_highlighted <- risk_distribution_plot +
+  geom_point(
+    data = dangerous_contexts, aes(x = outcomes, y = 0),
+    color = "purple", size = 5, shape = 8
+  ) +
+  labs(caption = "Purple stars indicate the outcomes from the top 3 most dangerous contexts.")
+
+print(risk_distribution_plot_highlighted)
 
 # --- Analysis 2: Calculate Probabilistic Risk ---
 high_risk_threshold <- 2.0
@@ -124,3 +145,42 @@ print(paste0("Estimated probability of outcome > ", high_risk_threshold, ": ", r
 
 percentile_95 <- quantile(sim_results_df$outcomes, 0.95)
 print(paste("95th percentile outcome (reasonable worst-case):", round(percentile_95, 2)))
+
+
+person_effects_true <- crossed_data_list$person_effects
+low_risk_person_id <- person_effects_true %>%
+  filter(b_i == min(b_i)) %>%
+  pull(person_id)
+
+print(paste("Now running comparison simulation for 'Low Risk' Person", low_risk_person_id))
+
+# --- Re-run the simulation loop for the low-risk person ---
+b_i_low_risk <- min(person_effects_true$b_i)
+sim_outcomes_low_risk <- c()
+for (context_j_id in all_context_ids) {
+  u_j_est <- context_effects_est[context_j_id, "(Intercept)"]
+  predicted_y <- fixed_intercept + (fixed_beta_x * x_val) + b_i_low_risk + u_j_est
+  random_shock <- rnorm(1, mean = 0, sd = sigma_e_est)
+  final_simulated_y <- predicted_y + random_shock
+  sim_outcomes_low_risk <- c(sim_outcomes_low_risk, final_simulated_y)
+}
+
+
+sim_results_low_risk_df <- data.frame(outcomes = sim_outcomes_low_risk)
+risk_dist_plot_low_risk <- ggplot(sim_results_low_risk_df, aes(x = outcomes)) +
+  geom_histogram(aes(y = ..density..), bins = 15, fill = "green", color = "black", alpha = 0.7) +
+  geom_density(color = "darkgreen", size = 1.2) +
+  labs(
+    title = paste("Simulated Risk Exposure Distribution for 'Low Risk' Person", low_risk_person_id),
+    x = "Simulated Outcome", y = "Density"
+  ) +
+  theme_minimal() +
+  coord_cartesian(xlim = range(sim_results_df$outcomes))
+
+print(risk_dist_plot_low_risk)
+
+
+print("--- Side-by-Side Comparison of Risk Profiles ---")
+
+side_by_side_plot <- risk_distribution_plot + risk_dist_plot_low_risk
+print(side_by_side_plot)
