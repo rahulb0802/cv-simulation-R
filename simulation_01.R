@@ -1,6 +1,7 @@
 library(dplyr)
 library(lme4)
 library(pROC)
+library(HLMdiag)
 
 generate_synthetic_data <- function(
     num_people=150,
@@ -31,7 +32,8 @@ generate_synthetic_data <- function(
     person_data_list[[i]] <- list(
       person_id = i,
       is_truly_vulnerable = is_vulnerable,
-      true_within_person_variance = true_variance
+      true_within_person_variance = true_variance,
+      true_u_i = true_u_i
     )
   }
   
@@ -49,7 +51,7 @@ generate_synthetic_data <- function(
     person_sigma <- sqrt(person$true_within_person_variance)
     epsilon_ij <- rnorm(num_contexts, mean = 0, sd = person_sigma)
     
-    y_ij <- beta * x_ij + epsilon_ij
+    y_ij <- beta * x_ij + person$true_u_i + epsilon_ij
     
     person_records <- data.frame(
       person_id = person$person_id,
@@ -67,16 +69,21 @@ generate_synthetic_data <- function(
   ))
 }
 
-set.seed(42)
+set.seed(20)
 
 simulation_output <- generate_synthetic_data()
 synthetic_data <- simulation_output$data_df
 true_person_info <- simulation_output$true_person_info
 
-model <- lmer(y ~ x + (1 | person_id), data = synthetic_data)
+model <- lmer(y ~ x + (1 | person_id), data = synthetic_data, REML = FALSE)
 
 fixed_effects_pred <- predict(model, re.form = NA)
 synthetic_data$marginal_residual <- synthetic_data$y - fixed_effects_pred
+
+print("The column names returned by hlm_resid() are:")
+print(names(lcr_results))
+
+
 
 tiv_scores <- synthetic_data %>%
   group_by(person_id) %>%
@@ -88,6 +95,21 @@ evaluation_df <- inner_join(tiv_scores, true_person_info, by = "person_id")
 auc_roc <- roc(evaluation_df$is_truly_vulnerable, evaluation_df$TIV_score)
 auc_value <- auc(auc_roc)
 
-print(paste("Validation AUC for original TIV:", round(auc_value, 4)))
+lcr_results <- hlm_resid(model, type = "LS")
 
+lcr_results$person_id <- synthetic_data$person_id
+
+tiv_lcr_scores <- lcr_results %>%
+  group_by(person_id) %>%
+  summarise(TIV_LCR_score = var(`.ls.resid`)) %>%
+  na.omit()
+
+evaluation_lcr_df <- inner_join(tiv_lcr_scores, true_person_info, by = "person_id")
+
+auc_roc_lcr <- roc(evaluation_lcr_df$is_truly_vulnerable, evaluation_lcr_df$TIV_LCR_score)
+auc_value_lcr <- auc(auc_roc_lcr)
+
+
+print(paste("Validation AUC for original TIV:", round(auc_value, 4)))
+print(paste("TIV-LCR AUC:", round(auc_value_lcr, 4)))
 
