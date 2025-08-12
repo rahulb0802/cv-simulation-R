@@ -8,7 +8,7 @@ library(e1071)
 library(patchwork)
 
 
-generate_sparse_data <- function(num_people = 800, num_contexts = 50) {
+generate_sparse_data <- function(num_people = 200, num_contexts = 50) {
   contexts <- data.frame(context_id = 1:num_contexts, context_risk = rnorm(num_contexts, 0, 1.5))
   true_person_variance <- matrix(c(0.5, 0.15, 0.15, 0.8), nrow = 2)
   dna_raw <- rmvnorm(num_people, mean = c(0, 0), sigma = true_person_variance)
@@ -26,7 +26,7 @@ phase_1_data <- generate_sparse_data()
 real_data <- phase_1_data$real_data
 all_contexts <- phase_1_data$all_contexts
 
-print("--- Phase 1: Fitting Bayesian model to learn world rules... ---")
+print("Fitting Bayesian model to learn world rules..")
 world_model <- brm(
   outcome ~ context_risk + (context_risk | person_id) + (1 | context_id),
   data = real_data,
@@ -45,7 +45,7 @@ estimated_real_dna_df <- data.frame(
 
 # Simulate outcomes
 
-print("--- Phase 3: Simulating transport for each person... ---")
+print("Simulating transport for each person...")
 num_contexts_to_visit <- 20
 est_fx <- fixef(world_model)[, "Estimate"]
 est_res_sd <- summary(world_model)$spec_pars["sigma", "Estimate"]
@@ -73,7 +73,7 @@ rich_simulated_data <- dplyr::bind_rows(rich_data_list)
 
 
 
-print("--- Phase 3: Calculating the final, multi-part CVI profile ---")
+print("Calculating the final CV scores")
 
 cvi_scores <- rich_simulated_data %>%
   group_by(person_id) %>%
@@ -91,9 +91,8 @@ cvi_scores <- rich_simulated_data %>%
   }) %>%
   ungroup()
 
-print("--- Final CVI Profile Calculated ---")
 print(head(cvi_scores))
-print("--- Starting Final Diagnostic Analysis for CVI_Reactivity ---")
+print("Diagnostic Analysis for CV Score")
 
 true_original_dna <- phase_1_data$true_person_dna
 
@@ -110,7 +109,7 @@ final_validation_test <- cor.test(
   validation_df$true_reactivity_magnitude
 )
 
-print("--- 1. Definitive Validation Result ---")
+print("Validation Result")
 print(final_validation_test)
 
 
@@ -118,9 +117,9 @@ validation_plot <- ggplot(validation_df, aes(x = true_reactivity_magnitude, y = 
   geom_point(alpha = 0.6, color = "darkred") +
   geom_smooth(method = "lm", color = "black") +
   labs(
-    title = "Final Validation: CVI_Reactivity vs. Ground Truth",
+    title = "Final Validation: CV Score vs. Ground Truth",
     x = "True Reactivity Magnitude |s_i| (Ground Truth)",
-    y = "CVI Reactivity Magnitude |slope| (Final Indicator)"
+    y = "CV Magnitude |slope| (Final Indicator)"
   ) +
   theme_minimal()
 
@@ -156,7 +155,7 @@ plot_least_reactive <- ggplot(least_reactive_data, aes(x = context_risk, y = sim
 
 persona_plot <- plot_least_reactive + plot_most_reactive
 
-print("--- 2. Vulnerability Persona Profiles ---")
+print("Vulnerability Persona Profiles")
 print(persona_plot)
 
 
@@ -164,18 +163,18 @@ distribution_plot <- ggplot(validation_df, aes(x = CVI_Reactivity)) +
   geom_histogram(aes(y = ..density..), bins = 30, fill = "gray80", color = "black") +
   geom_density(color = "darkblue", size = 1.2) +
   labs(
-    title = "Distribution of the CVI_Reactivity Indicator",
+    title = "Distribution of the CV Indicator",
     subtitle = "Shows the landscape of predictable sensitivity in the population",
-    x = "CVI Reactivity Score (Personal Slope)",
+    x = "CV Score (Personal Slope)",
     y = "Density"
   ) +
   theme_minimal()
 
-print("--- 3. Distribution of the Final Indicator ---")
+print("Distribution of the Final Indicator")
 print(distribution_plot)
 
 
-print("--- Final Analysis: Does CVI_Reactivity predict extreme outcomes? ---")
+print("Does CV Score predict extreme outcomes?")
 
 consequence_metrics <- rich_simulated_data %>%
   group_by(person_id) %>%
@@ -200,7 +199,7 @@ plot_range <- ggplot(consequence_validation_df, aes(x = CVI_Reactivity_Abs, y = 
   geom_smooth(method = "lm") +
   labs(
     title = "Consequence Test 1: Reactivity vs. Outcome Range",
-    x = "CVI Reactivity Magnitude |slope|",
+    x = "CV Score |slope|",
     y = "Range of Simulated Outcomes"
   ) +
   theme_minimal()
@@ -208,13 +207,12 @@ plot_range <- ggplot(consequence_validation_df, aes(x = CVI_Reactivity_Abs, y = 
 print(plot_range)
 
 
-print("--- Running Direct Validation of the Bayesian Estimate ---")
+print("Running Direct Validation of the Bayesian Estimate")
 
 validation_df <- inner_join(estimated_real_dna_df, true_original_dna, by = "person_id")
 
 correlation_test <- cor.test(validation_df$est_s_i, validation_df$true_s_i)
 
-print("--- VALIDATION RESULT ---")
 print("Correlation between the Direct Bayesian Estimate and the Ground Truth:")
 print(correlation_test)
 
@@ -233,10 +231,9 @@ validation_plot <- ggplot(validation_df, aes(x = true_s_i, y = est_s_i)) +
 print(validation_plot)
 
 
-print("--- Starting Final Diagnostic Analysis ---")
+# More diagnostics
 
 # Rank order stability (running multiple simulations)
-print("--- Running Diagnostic 1: Rank-Order Stability Test ---")
 
 median_reactivity_value <- median(cvi_scores$CVI_Reactivity) # Let's use the raw reactivity for the median
 
@@ -260,9 +257,9 @@ stability_plot <- ggplot(data.frame(scores = stability_scores), aes(x = scores))
   geom_histogram(aes(y = ..density..), bins = 15, fill = "gray70", color = "black") +
   geom_density(color = "darkred", size = 1.2) +
   labs(
-    title = paste("Stability of CVI_Reactivity for Person", median_reactivity_person_id),
+    title = paste("Stability of CV Score for Person", median_reactivity_person_id),
     subtitle = "A narrow peak indicates a reliable and precise indicator.",
-    x = "CVI_Reactivity Score (from 100 independent simulations)",
+    x = "CV Score (from 100 independent simulations)",
     y = "Density"
   ) +
   theme_minimal()
@@ -271,8 +268,6 @@ print(stability_plot)
 
 
 # Context contribution plot
-
-print("--- Running Diagnostic 2: Context Contribution Plot ---")
 high_reactivity_person_id <- cvi_scores %>%
   mutate(abs_reactivity = abs(CVI_Reactivity)) %>%
   filter(abs_reactivity == max(abs_reactivity)) %>%
@@ -303,8 +298,6 @@ print(contribution_plot)
 
 
 # Conditional density plot
-
-print("--- Running Diagnostic 3: Conditional Density Plot ---")
 low_reactivity_person_id <- cvi_scores %>%
   mutate(abs_reactivity = abs(CVI_Reactivity)) %>%
   filter(abs_reactivity == min(abs_reactivity)) %>%
@@ -340,3 +333,75 @@ density_plot_low <- ggplot(low_reactivity_data, aes(x = simulated_outcome, fill 
 conditional_density_comparison <- density_plot_low + density_plot_high
 
 print(conditional_density_comparison)
+
+print("Diagnostic: Noise Robustness")
+
+original_scores <- cvi_scores %>%
+  select(person_id, CVI_Reactivity) %>%
+  mutate(type = "High Reactivity Signal")
+
+# Create a "pure noise" dataset
+noise_data <- rich_simulated_data %>%
+  # Scramble the outcomes to destroy the signal
+  mutate(simulated_outcome = sample(simulated_outcome))
+
+# Calculate CVI_Reactivity for the noisy data
+noise_scores <- noise_data %>%
+  group_by(person_id) %>%
+  group_modify(~ {
+    personal_model <- lm(simulated_outcome ~ context_risk, data = .x)
+    data.frame(CVI_Reactivity = coef(personal_model)["context_risk"])
+  }) %>%
+  ungroup() %>%
+  mutate(type = "Pure Noise")
+
+# Combine and plot the distributions
+noise_comparison_df <- bind_rows(original_scores, noise_scores)
+noise_plot <- ggplot(noise_comparison_df, aes(x = CVI_Reactivity, fill = type)) +
+  geom_density(alpha = 0.7) +
+  labs(
+    title = "Signal vs. Noise",
+    subtitle = "Indicator correctly distinguishes true reactivity from random noise.",
+    x = "CV Score"
+  ) +
+  theme_minimal()
+
+print(noise_plot)
+
+
+# Info saturation test
+
+# Select a person with high reactivity
+high_reactivity_person_id <- cvi_scores %>%
+  mutate(abs_reactivity = abs(CVI_Reactivity)) %>%
+  filter(abs_reactivity == max(abs_reactivity)) %>%
+  pull(person_id)
+
+person_data_for_test <- rich_simulated_data %>% filter(person_id == high_reactivity_person_id)
+
+# Iteratively calculate the CVI score
+saturation_results <- list()
+for (n_obs in 3:nrow(person_data_for_test)) {
+  subset_data <- person_data_for_test %>% slice(1:n_obs)
+  personal_model <- lm(simulated_outcome ~ context_risk, data = subset_data)
+
+  saturation_results[[n_obs]] <- data.frame(
+    num_observations = n_obs,
+    cvi_score = coef(personal_model)["context_risk"]
+  )
+}
+saturation_df <- dplyr::bind_rows(saturation_results)
+
+# Plot the results
+saturation_plot <- ggplot(saturation_df, aes(x = num_observations, y = cvi_score)) +
+  geom_line(color = "darkblue", size = 1.2) +
+  geom_point(color = "darkblue", size = 3) +
+  labs(
+    title = paste("Information Saturation for Person", high_reactivity_person_id),
+    subtitle = "The estimate stabilizes as more information is added.",
+    x = "Number of Simulated Contexts Used",
+    y = "Calculated CV Score"
+  ) +
+  theme_minimal()
+
+print(saturation_plot)
