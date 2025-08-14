@@ -233,3 +233,38 @@ top_5_plot <- ggplot(top_5_data, aes(x = CVI_Reactivity)) +
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) # Clean up y-axis
 
 print(top_5_plot)
+
+svi_posterior_data <- final_posterior_cvi_data %>%
+  group_by(world_id) %>%
+  mutate(
+    SVI_Score = as.numeric(scale(CVI_Reactivity))
+  ) %>%
+  ungroup()
+
+print("Head of the final SVI posterior data:")
+print(head(svi_posterior_data))
+
+final_svi_summary <- svi_posterior_data %>%
+  group_by(person_id) %>%
+  summarise(
+    SVI_SCORE_median = median(SVI_Score),
+    SVI_lower_95 = quantile(SVI_Score, 0.025),
+    SVI_upper_95 = quantile(SVI_Score, 0.0975)
+  ) %>%
+  ungroup()
+
+print("Final SVI Summary")
+print(head(final_svi_summary))
+
+svi_plot_final <- ggplot(final_svi_summary, aes(x = SVI_SCORE_median)) +
+  geom_histogram(bins = 20, fill = "darkgreen", color = "white", alpha = 0.8) +
+  geom_vline(xintercept = c(-2, -1, 1, 2), linetype = "dashed", color = "black") +
+  labs(
+    title = "Distribution of the Final Standardized Vulnerability Index (SVI)",
+    subtitle = "The score is the median of each person's posterior SVI distribution.",
+    x = "SVI Score (Z-score of Reactivity)",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+print(svi_plot_final)
