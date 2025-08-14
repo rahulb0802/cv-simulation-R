@@ -26,12 +26,44 @@ phase_1_data <- generate_sparse_data()
 real_data <- phase_1_data$real_data
 all_contexts <- phase_1_data$all_contexts
 
+model_priors <- c(
+  prior(student_t(3, 0, 2.5), class = "sd", group = "person_id", coef = "Intercept"),
+  prior(student_t(3, 0, 2.5), class = "sd", group = "person_id", coef = "context_risk"),
+  prior(student_t(3, 0, 2.5), class = "sd", group = "context_id"),
+  prior(lkj(2), class = "cor"),
+  prior(student_t(3, 0, 10), class = "Intercept"),
+  prior(normal(0, 5), class = "b", coef = "context_risk")
+)
+
 print("Fitting Bayesian model to learn world rules..")
 world_model <- brm(
   outcome ~ context_risk + (context_risk | person_id) + (1 | context_id),
   data = real_data,
+  prior = model_priors,
   chains = 2, iter = 1000, cores = 2, silent = 2, refresh = 0
 )
+
+# print("Fitting only priors...")
+#
+# prior_only_model <- brm(
+#   outcome ~ context_risk + (context_risk | person_id) + (1 | context_id),
+#   data = real_data,
+#   prior = model_priors,
+#   sample_prior = "only", # Only using priors
+#   chains = 2, iter = 1000, cores = 2, silent = 2, refresh = 0
+# )
+#
+# prior_plot <- pp_check(prior_only_model, nsamples = 100) +
+#   labs(title = "Prior Predictive Check: What the Model Believes Before Seeing Data")
+#
+# print(prior_plot)
+#
+# # Compare to real data
+# real_data_plot <- ggplot(real_data, aes(x = outcome)) +
+#   geom_density(fill = "skyblue", alpha = 0.7) +
+#   labs(title = "Distribution of the Actual Observed Data")
+#
+# print(real_data_plot)
 
 # Estimate individual traits
 
@@ -46,7 +78,7 @@ estimated_real_dna_df <- data.frame(
 # Simulate outcomes
 
 print("Simulating transport for each person...")
-num_contexts_to_visit <- 20
+num_contexts_to_visit <- 50
 est_fx <- fixef(world_model)[, "Estimate"]
 est_res_sd <- summary(world_model)$spec_pars["sigma", "Estimate"]
 sd_context <- VarCorr(world_model)$context_id$sd["Intercept", "Estimate"]
