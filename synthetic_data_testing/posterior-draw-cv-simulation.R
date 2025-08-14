@@ -234,37 +234,164 @@ top_5_plot <- ggplot(top_5_data, aes(x = CVI_Reactivity)) +
 
 print(top_5_plot)
 
-svi_posterior_data <- final_posterior_cvi_data %>%
-  group_by(world_id) %>%
-  mutate(
-    SVI_Score = as.numeric(scale(CVI_Reactivity))
-  ) %>%
-  ungroup()
-
-print("Head of the final SVI posterior data:")
-print(head(svi_posterior_data))
-
-final_svi_summary <- svi_posterior_data %>%
+point_estimates <- final_posterior_cvi_data %>%
   group_by(person_id) %>%
-  summarise(
-    SVI_SCORE_median = median(SVI_Score),
-    SVI_lower_95 = quantile(SVI_Score, 0.025),
-    SVI_upper_95 = quantile(SVI_Score, 0.0975)
-  ) %>%
+  summarise(CVI_Reactivity = median(CVI_Reactivity)) %>%
   ungroup()
 
-print("Final SVI Summary")
-print(head(final_svi_summary))
+scale_asinh_robust <- function(x) {
+  robust_scaled <- (x - median(x)) / IQR(x)
+  compressed <- asinh(robust_scaled)
+  max_abs_val <- max(abs(compressed))
+  normalized <- compressed / max_abs_val
+  return(normalized)
+}
 
-svi_plot_final <- ggplot(final_svi_summary, aes(x = SVI_SCORE_median)) +
-  geom_histogram(bins = 20, fill = "darkgreen", color = "white", alpha = 0.8) +
-  geom_vline(xintercept = c(-2, -1, 1, 2), linetype = "dashed", color = "black") +
+final_nvi_scores <- point_estimates %>%
+  mutate(
+    NVI_Score = scale_asinh_robust(CVI_Reactivity)
+  )
+
+print("--- Final NVI Scores Calculated ---")
+print("Head of the final NVI scores, sorted by score:")
+print(head(final_nvi_scores %>% arrange(desc(NVI_Score))))
+
+
+nvi_plot <- ggplot(final_nvi_scores, aes(x = NVI_Score)) +
+  geom_histogram(bins = 25, fill = "darkblue", color = "white", alpha = 0.8) +
   labs(
-    title = "Distribution of the Final Standardized Vulnerability Index (SVI)",
-    subtitle = "The score is the median of each person's posterior SVI distribution.",
-    x = "SVI Score (Z-score of Reactivity)",
+    title = "Distribution of the Final Normalized Vulnerability Index (NVI)",
+    subtitle = "The final score is scaled to a -1 to 1 range.",
+    x = "NVI Score (0 = Least Vulnerable, 1 = Most Vulnerable)",
     y = "Frequency"
   ) +
   theme_minimal()
 
-print(svi_plot_final)
+print(nvi_plot)
+
+high_nvi_person_id <- final_nvi_scores %>%
+  filter(NVI_Score == max(NVI_Score)) %>%
+  pull(person_id)
+
+low_nvi_person_id <- final_nvi_scores %>%
+  mutate(abs_nvi = abs(NVI_Score)) %>%
+  filter(abs_nvi == min(abs_nvi)) %>%
+  pull(person_id)
+
+high_nvi_data <- rich_simulated_data %>% filter(person_id == high_nvi_person_id)
+low_nvi_data <- rich_simulated_data %>% filter(person_id == low_nvi_person_id)
+
+plot_high_nvi <- ggplot(high_nvi_data, aes(x = context_risk, y = simulated_outcome)) +
+  geom_point(color = "darkred", alpha = 0.6) +
+  geom_smooth(method = "lm", color = "black", se = FALSE) +
+  labs(
+    title = paste("Profile for Most Vulnerable (Person", high_nvi_person_id, ")"),
+    subtitle = "A steep slope indicates high reactivity.",
+    x = "Context Risk Score",
+    y = "Simulated Outcome"
+  ) +
+  theme_minimal()
+
+plot_low_nvi <- ggplot(low_nvi_data, aes(x = context_risk, y = simulated_outcome)) +
+  geom_point(color = "darkblue", alpha = 0.6) +
+  geom_smooth(method = "lm", color = "black", se = FALSE) +
+  labs(
+    title = paste("Profile for Least Vulnerable (Person", low_nvi_person_id, ")"),
+    subtitle = "A flat slope indicates low reactivity.",
+    x = "Context Risk Score",
+    y = "Simulated Outcome"
+  ) +
+  coord_cartesian(ylim = range(high_nvi_data$simulated_outcome, low_nvi_data$simulated_outcome))
+
+final_validation_plot <- plot_low_nvi + plot_high_nvi
+
+print(final_validation_plot)
+
+initial_uncertainty <- final_posterior_cvi_data %>%
+  group_by(person_id) %>%
+  summarise(
+    lower_95 = quantile(CVI_Reactivity, 0.025),
+    upper_95 = quantile(CVI_Reactivity, 0.975)
+  ) %>%
+  ungroup()
+
+nvi_with_uncertainty <- inner_join(final_nvi_scores, initial_uncertainty, by = "person_id")
+
+
+# Caterpillar plot
+
+nvi_caterpillar_plot <- nvi_with_uncertainty %>%
+  mutate(person_id = reorder(as.factor(person_id), NVI_Score)) %>%
+  ggplot(aes(x = person_id, y = CVI_Reactivity)) + # Plotting the raw reactivity
+  geom_errorbar(aes(ymin = lower_95, ymax = upper_95), width = 0.2, color = "gray60") +
+  geom_point(aes(color = NVI_Score), size = 2) + # Color the points by their FINAL NVI score
+  scale_color_gradient2(low = "blue", mid = "grey", high = "red", midpoint = 0) +
+  geom_hline(yintercept = 0, linetype = "dashed", color = "black") +
+  labs(
+    title = "Distribution of Individual Reactivity with Uncertainty",
+    subtitle = "Points colored by their final NVI Score (-1 to +1).",
+    x = "Individual Person (ordered by NVI Score)",
+    y = "Raw CVI_Reactivity (Unscaled)"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+print(nvi_caterpillar_plot)
+
+# Certainty plot
+
+certainty_df <- nvi_with_uncertainty %>%
+  mutate(
+    uncertainty_width = upper_95 - lower_95,
+    nvi_magnitude = abs(NVI_Score)
+  )
+
+certainty_plot_nvi <- ggplot(certainty_df, aes(x = nvi_magnitude, y = uncertainty_width)) +
+  geom_point(alpha = 0.6, color = "darkorange") +
+  geom_smooth(method = "lm", color = "black", linetype = "dotted") +
+  labs(
+    title = "NVI Magnitude vs. Initial Uncertainty",
+    subtitle = "Are we more certain about people with more extreme NVI scores?",
+    x = "NVI Score Magnitude |-1 to +1|",
+    y = "Width of Initial 95% Credible Interval (Uncertainty)"
+  ) +
+  theme_minimal()
+
+print(certainty_plot_nvi)
+
+high_nvi_person_id <- final_nvi_scores %>%
+  filter(NVI_Score == max(NVI_Score)) %>%
+  pull(person_id)
+low_nvi_person_id <- final_nvi_scores %>%
+  mutate(abs_nvi = abs(NVI_Score)) %>%
+  filter(abs_nvi == min(abs_nvi)) %>%
+  pull(person_id)
+
+high_nvi_dist <- final_posterior_cvi_data %>% filter(person_id == high_nvi_person_id)
+low_nvi_dist <- final_posterior_cvi_data %>% filter(person_id == low_nvi_person_id)
+
+high_nvi_score <- final_nvi_scores %>%
+  filter(person_id == high_nvi_person_id) %>%
+  pull(NVI_Score)
+low_nvi_score <- final_nvi_scores %>%
+  filter(person_id == low_nvi_person_id) %>%
+  pull(NVI_Score)
+
+plot_high_nvi_dist <- ggplot(high_nvi_dist, aes(x = CVI_Reactivity)) +
+  geom_density(fill = "firebrick", alpha = 0.8) +
+  labs(
+    title = paste("Posterior Profile for Most Vulnerable (Person", high_nvi_person_id, ")"),
+    subtitle = paste("Final NVI Score =", round(high_nvi_score, 2)), x = "Raw CVI_Reactivity"
+  ) +
+  theme_minimal()
+
+plot_low_nvi_dist <- ggplot(low_nvi_dist, aes(x = CVI_Reactivity)) +
+  geom_density(fill = "steelblue", alpha = 0.8) +
+  labs(
+    title = paste("Posterior Profile for Most Stable (Person", low_nvi_person_id, ")"),
+    subtitle = paste("Final NVI Score =", round(low_nvi_score, 2)), x = "Raw CVI_Reactivity"
+  ) +
+  coord_cartesian(xlim = range(high_nvi_dist$CVI_Reactivity, low_nvi_dist$CVI_Reactivity))
+
+persona_density_plot <- plot_low_nvi_dist + plot_high_nvi_dist
+print(persona_density_plot)
