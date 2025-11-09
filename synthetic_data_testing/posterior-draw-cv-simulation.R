@@ -48,12 +48,12 @@ phase_1_data <- generate_sparse_data()
 real_data <- phase_1_data$real_data
 all_contexts <- phase_1_data$all_contexts
 
-model_priors <- c(
-  prior(normal(0, 0.2), class = "sd"),
-  prior(lkj(2), class = "cor"),
-  prior(normal(-3, 1), class = "Intercept"),
-  prior(normal(0, 0.5), class = "b")
-)
+# model_priors <- c(
+#   prior(normal(0, 0.2), class = "sd"),
+#   prior(lkj(2), class = "cor"),
+#   prior(normal(-3, 1), class = "Intercept"),
+#   prior(normal(0, 0.5), class = "b")
+# )
 
 print("Fitting Bayesian model to learn world rules..")
 world_model <- brm(
@@ -61,11 +61,11 @@ world_model <- brm(
                               person_id) + (1 | context_id),
   data = real_data,
   family = bernoulli(link = "logit"),
-  prior = model_priors,
+  # prior = model_priors,
   # sample_prior = "only",
-  chains = 2,
+  chains = 4,
   iter = 2000,
-  cores = 2,
+  cores = 4,
   silent = 2,
   refresh = 0
 )
@@ -404,13 +404,17 @@ print(representative_plot)
 # Ideas for deriving threshold
 
 # Gaussian mixture model to separate groups
-mixture_model <- Mclust(final_cvi_summary$CVI_SCORE, G = 2:3)
+mixture_model <- Mclust(final_cvi_summary$CVI_SCORE, G = 1:3)
 
 print(paste("Optimal Model:", mixture_model$G, mixture_model$modelName))
 params <- mixture_model$parameters
 
 group_means <- params$mean
 group_order <- order(group_means)
+
+if (mixture_model$G == 1) {
+  stop("No latent sub-populations identified.")
+}
 
 if (mixture_model$G == 3) {
   mean_resilient <- params$mean[group_order[1]]
