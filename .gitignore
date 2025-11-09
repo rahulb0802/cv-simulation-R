@@ -1,0 +1,6 @@
+.Rproj.user
+.Rhistory
+.RData
+.Ruserdata
+synthetic_data_testing/images/
+synthetic_data_testing/final_crossval_sim.R
